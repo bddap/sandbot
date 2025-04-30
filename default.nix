@@ -1,9 +1,12 @@
+{ ... }:
 let
   nixpkgs_src = builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/5cfaab2c5c1492cbec3e5e85a4dca8601858a06a.tar.gz";
     sha256 = "sha256:13fs75rars50m49ngxbnk1ms4k2gv7ll9zwf6y64wlvpzw44vwnr";
   };
   pkgs = import nixpkgs_src { };
+
+  codex = make_codex pkgs;
   make_codex =
     {
       fetchFromGitHub,
@@ -58,6 +61,10 @@ let
       '';
     };
 
+  codex_o3 = pkgs.writeShellScriptBin "codex-o3" ''
+    exec ${codex}/bin/codex --full-auto --model o3 "$@"
+  '';
+
   allowPodmanLoad = pkgs.writeText "podman-policy.json" (
     builtins.toJSON {
       default = [ { type = "reject"; } ];
@@ -73,8 +80,18 @@ let
     }
   );
 
+  empty_tmpdir = (
+    pkgs.stdenv.mkDerivation {
+      name = "tmp";
+      buildCommand = ''
+        mkdir -p $out/tmp
+      '';
+    }
+  );
+
   image_packages = [
-    (make_codex pkgs)
+    codex
+    codex_o3
     pkgs.cargo
     pkgs.clippy
     pkgs.rustfmt
@@ -102,6 +119,8 @@ let
     pkgs.just
     pkgs.cmake
     pkgs.nix
+    pkgs.which
+    pkgs.gnutar
   ];
 
   image_extras = [
@@ -112,29 +131,10 @@ let
     empty_tmpdir
   ];
 
-  empty_tmpdir = (
-    pkgs.stdenv.mkDerivation {
-      name = "tmp";
-      buildCommand = ''
-        mkdir -p $out/tmp
-      '';
-    }
-  );
   env = pkgs.buildEnv {
     name = "dev-packages";
     paths = image_packages ++ image_extras;
   };
-
-  sandbot-load = pkgs.writeShellScriptBin "sandbot-load" ''
-    # #!/usr/bin/env bash
-    set -ueo pipefail
-    ${write_container} | "${pkgs.podman}/bin/podman" load --signature-policy ${allowPodmanLoad}
-  '';
-  sandbot-run = pkgs.writeShellScriptBin "sandbot-run" ''
-    #!/usr/bin/env bash
-    set -ueo pipefail
-    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex --full-auto --model o3
-  '';
 
   write_container = pkgs.dockerTools.streamLayeredImage {
     name = "sandbot-devshell";
@@ -148,15 +148,31 @@ let
       Env = [
         "PATH=/usr/local/bin:/usr/bin:/bin"
         "CARGO_TARGET_DIR=/tmp/target"
+        "NIX_PATH=nixpkgs=${nixpkgs_src}"
       ];
     };
   };
+
+  sandbot-load = pkgs.writeShellScriptBin "sandbot-load" ''
+    set -ueo pipefail
+    ${write_container} | "${pkgs.podman}/bin/podman" load --signature-policy ${allowPodmanLoad}
+  '';
+
+  sandbot-run = pkgs.writeShellScriptBin "sandbot-run" ''
+    set -ueo pipefail
+    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex --full-auto --model o3
+  '';
+
+  sandbot-shell = pkgs.writeShellScriptBin "sandbot-shell" ''
+    set -ueo pipefail
+    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" bash
+  '';
 in
 pkgs.symlinkJoin {
   name = "sandbot";
   paths = [
     sandbot-load
     sandbot-run
+    sandbot-shell
   ];
 }
-
