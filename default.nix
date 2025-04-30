@@ -58,14 +58,26 @@ let
       '';
     };
 
-  policyObj = {
-    default = [ { type = "insecureAcceptAnything"; } ];
-  };
-  policyFile = pkgs.writeText "podman-policy.json" (builtins.toJSON policyObj);
+  allowPodmanLoad = pkgs.writeText "podman-policy.json" (
+    builtins.toJSON {
+      default = [ { type = "reject"; } ];
+      transports = {
+        docker-archive = {
+          "" = [
+            {
+              type = "insecureAcceptAnything";
+            }
+          ];
+        };
+      };
+    }
+  );
 
   image_packages = [
     (make_codex pkgs)
     pkgs.cargo
+    pkgs.clippy
+    pkgs.rustfmt
     pkgs.git
     pkgs.curl
     pkgs.dnsutils
@@ -88,6 +100,8 @@ let
     pkgs.file
     pkgs.findutils
     pkgs.just
+    pkgs.cmake
+    pkgs.nix
   ];
 
   image_extras = [
@@ -114,18 +128,21 @@ let
   sandbot-load = pkgs.writeShellScriptBin "sandbot-load" ''
     # #!/usr/bin/env bash
     set -ueo pipefail
-    "${pkgs.gzip}/bin/gunzip" <${container} | "${pkgs.podman}/bin/podman" load --signature-policy ${policyFile}
+    ${write_container} | "${pkgs.podman}/bin/podman" load --signature-policy ${allowPodmanLoad}
   '';
   sandbot-run = pkgs.writeShellScriptBin "sandbot-run" ''
     #!/usr/bin/env bash
     set -ueo pipefail
-    "${pkgs.podman}/bin/podman" run --signature-policy ${policyFile} --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex --full-auto --model o3
+    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex --full-auto --model o3
   '';
 
-  container = pkgs.dockerTools.buildImage {
+  write_container = pkgs.dockerTools.streamLayeredImage {
     name = "sandbot-devshell";
     tag = "sandbot-devshell";
-    copyToRoot = env;
+    contents = env;
+
+    includeStorePaths = true;
+
     config = {
       WorkingDir = "/workdir";
       Env = [
@@ -142,3 +159,4 @@ pkgs.symlinkJoin {
     sandbot-run
   ];
 }
+
