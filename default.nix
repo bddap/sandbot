@@ -121,6 +121,7 @@ let
     pkgs.nix
     pkgs.which
     pkgs.gnutar
+    pkgs.uv
   ];
 
   image_extras = [
@@ -147,8 +148,11 @@ let
       WorkingDir = "/workdir";
       Env = [
         "PATH=/usr/local/bin:/usr/bin:/bin"
-        "CARGO_TARGET_DIR=/tmp/target"
         "NIX_PATH=nixpkgs=${nixpkgs_src}"
+        "NIX_CONFIG=build-users-group = root"
+        "HOME=/root"
+        "CARGO_TARGET_DIR=/root/cargo-target"
+        "UV_VENV_DIR=/root/uv-venv"
       ];
     };
   };
