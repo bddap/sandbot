@@ -116,7 +116,7 @@ let
     # pkgs.procps
     # pkgs.unzip
     # pkgs.ripgrep
-    # pkgs.bash
+    pkgs.bash
     # pkgs.coreutils-full
     # pkgs.clang
     # pkgs.gnused
