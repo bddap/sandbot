@@ -88,53 +88,78 @@ let
       '';
     }
   );
+  link_loader = pkgs.runCommand "link-loader" { } ''
+    # common tools need /lib64/ld-linux-x86-64.so.2 to exist, this is what nix-ld is for
+    # I couldn't find the the derivation for the ld-linux-x86-64.so.2 from nix-ld so I
+    # pull the one from glibc like a goof.
+    # this one will read LD_LIBRARY_PATH instead of NIX_LD_LIBRARY_PATH I think
+    mkdir -p $out/lib64
+    ln -s ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 $out/lib64/ld-linux-x86-64.so.2
+  '';
 
+  # Add shared libraries for uv’s custom Python below:
   image_packages = [
     codex
     codex_o3
-    pkgs.cargo
-    pkgs.clippy
-    pkgs.rustfmt
-    pkgs.git
-    pkgs.curl
-    pkgs.dnsutils
-    pkgs.fzf
-    pkgs.gh
-    pkgs.gnupg
-    pkgs.jq
-    pkgs.less
-    pkgs.man-db
-    pkgs.procps
-    pkgs.unzip
-    pkgs.ripgrep
-    pkgs.bash
-    pkgs.coreutils-full
-    pkgs.clang
-    pkgs.gnused
-    pkgs.gawk
-    pkgs.python3
-    pkgs.gnugrep
-    pkgs.file
-    pkgs.findutils
+    # pkgs.cargo
+    # pkgs.clippy
+    # pkgs.rustfmt
+    # pkgs.git
+    # pkgs.curl
+    # pkgs.dnsutils
+    # pkgs.fzf
+    # pkgs.gh
+    # pkgs.gnupg
+    # pkgs.jq
+    # pkgs.less
+    # pkgs.man-db
+    # pkgs.procps
+    # pkgs.unzip
+    # pkgs.ripgrep
+    # pkgs.bash
+    # pkgs.coreutils-full
+    # pkgs.clang
+    # pkgs.gnused
+    # pkgs.gawk
+    # pkgs.python3
+    # pkgs.gnugrep
+    # pkgs.file
+    # pkgs.findutils
     pkgs.just
-    pkgs.cmake
+    # pkgs.cmake
     pkgs.nix
-    pkgs.which
-    pkgs.gnutar
-    pkgs.uv
+    # pkgs.which
+    # pkgs.gnutar
+    # pkgs.uv
+    # pkgs.patchelf
   ];
-
+  common_shared_libs = [
+    # pkgs.glibc
+    # pkgs.zlib
+    # pkgs.bzip2
+    # pkgs.xz
+    # pkgs.ncurses
+    # pkgs.openssl
+    # pkgs.gdbm
+    # pkgs.sqlite
+    # pkgs.readline
+    # pkgs.libffi
+    # pkgs.libnsl
+  ];
   image_extras = [
     pkgs.dockerTools.usrBinEnv
     pkgs.dockerTools.binSh
     pkgs.dockerTools.caCertificates
     pkgs.dockerTools.fakeNss
     empty_tmpdir
+    link_loader
+    # pkgs.nix-ld
   ];
+  all_image_packages = image_packages ++ common_shared_libs ++ image_extras;
 
   env = pkgs.buildEnv {
     name = "dev-packages";
-    paths = image_packages ++ image_extras;
+    paths = all_image_packages;
   };
 
   write_container = pkgs.dockerTools.streamLayeredImage {
@@ -150,6 +175,8 @@ let
         "PATH=/usr/local/bin:/usr/bin:/bin"
         "NIX_PATH=nixpkgs=${nixpkgs_src}"
         "NIX_CONFIG=build-users-group = root"
+        # "NIX_LD_LIBARY_PATH=${pkgs.lib.makeLibraryPath [ env ]}"
+        "LD_LIBARY_PATH=${pkgs.lib.makeLibraryPath [ env ]}"
         "HOME=/root"
         "CARGO_TARGET_DIR=/root/cargo-target"
         "UV_VENV_DIR=/root/uv-venv"
@@ -169,7 +196,7 @@ let
 
   sandbot-shell = pkgs.writeShellScriptBin "sandbot-shell" ''
     set -ueo pipefail
-    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" bash
+    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" ${pkgs.bash}/bin/bash
   '';
 in
 pkgs.symlinkJoin {
