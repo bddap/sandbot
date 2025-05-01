@@ -113,11 +113,12 @@ let
     pkgs.jq
     # pkgs.less
     # pkgs.man-db
-    # pkgs.procps
+    pkgs.procps
+    pkgs.psmisc
     # pkgs.unzip
     pkgs.ripgrep
     pkgs.bash
-    # pkgs.coreutils-full
+    pkgs.coreutils-full
     # pkgs.clang
     pkgs.gnused
     pkgs.gawk
@@ -133,6 +134,7 @@ let
     pkgs.uv
     # pkgs.patchelf
   ];
+
   common_shared_libs = [
     # pkgs.glibc
     # pkgs.zlib
