@@ -104,33 +104,33 @@ let
     # pkgs.cargo
     # pkgs.clippy
     # pkgs.rustfmt
-    # pkgs.git
-    # pkgs.curl
+    pkgs.git
+    pkgs.curl
     # pkgs.dnsutils
     # pkgs.fzf
     # pkgs.gh
     # pkgs.gnupg
-    # pkgs.jq
+    pkgs.jq
     # pkgs.less
     # pkgs.man-db
     # pkgs.procps
     # pkgs.unzip
-    # pkgs.ripgrep
+    pkgs.ripgrep
     pkgs.bash
     # pkgs.coreutils-full
     # pkgs.clang
-    # pkgs.gnused
-    # pkgs.gawk
-    # pkgs.python3
-    # pkgs.gnugrep
-    # pkgs.file
-    # pkgs.findutils
+    pkgs.gnused
+    pkgs.gawk
+    pkgs.python3
+    pkgs.gnugrep
+    pkgs.file
+    pkgs.findutils
     pkgs.just
     # pkgs.cmake
     pkgs.nix
-    # pkgs.which
+    pkgs.which
     # pkgs.gnutar
-    # pkgs.uv
+    pkgs.uv
     # pkgs.patchelf
   ];
   common_shared_libs = [
@@ -146,6 +146,7 @@ let
     # pkgs.libffi
     # pkgs.libnsl
   ];
+
   image_extras = [
     pkgs.dockerTools.usrBinEnv
     pkgs.dockerTools.binSh
