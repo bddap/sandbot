@@ -7,59 +7,6 @@ let
   pkgs = import nixpkgs_src { };
 
   codex = import ./codex.nix pkgs;
-  make_codex =
-    {
-      fetchFromGitHub,
-      stdenv,
-      pnpm,
-      nodejs,
-      makeWrapper,
-      ...
-    }:
-
-    stdenv.mkDerivation rec {
-      pname = "codex-cli";
-      version = (builtins.fromJSON (builtins.readFile "${src}/codex-cli/package.json")).version;
-      src = fetchFromGitHub {
-        owner = "openai";
-        repo = "codex";
-        rev = "ebd2ae4abdefad104437147d4e27e4d90200492e";
-        sha256 = "sha256-QWaeTVuM400GfRe60klxjaK4diuoKY+SVIB+KNuKRsE=";
-      };
-      sourceRoot = src.name;
-      nativeBuildInputs = [
-        pnpm
-        pnpm.configHook
-        makeWrapper
-      ];
-      buildInputs = [
-        nodejs
-      ];
-
-      pnpmDeps = pnpm.fetchDeps {
-        inherit pname version src;
-        hash = "sha256-pPwHjtqqaG+Zqmq6x5o+WCT1H9XuXAqFNKMzevp7wTc=";
-      };
-
-      buildPhase = ''
-        cd ${pname}
-        pnpm install --frozen-lockfile
-        pnpm run build
-      '';
-
-      installPhase = ''
-        runHook preInstall
-
-        mkdir -p $out/bin
-        mkdir -p $out/lib
-
-        install -Dm644 dist/cli.js $out/lib/cli.js
-        makeWrapper ${nodejs}/bin/node $out/bin/codex \
-          --add-flags "$out/lib/cli.js"
-
-        runHook postInstall
-      '';
-    };
 
   codex_o3 = pkgs.writeShellScriptBin "codex-o3" ''
     exec ${codex}/bin/codex --full-auto --model o3 "$@"
@@ -201,6 +148,16 @@ let
     set -ueo pipefail
     "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" ${pkgs.bash}/bin/bash
   '';
+
+  sandbot-exec = pkgs.writeShellScriptBin "sandbot-exec" ''
+    set -ueo pipefail
+    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex exec "$@"
+  '';
+
+  sandbot-interactive = pkgs.writeShellScriptBin "sandbot-interactive" ''
+    set -ueo pipefail
+    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex "$@"
+  '';
 in
 pkgs.symlinkJoin {
   name = "sandbot";
@@ -208,5 +165,7 @@ pkgs.symlinkJoin {
     sandbot-load
     sandbot-run
     sandbot-shell
+    sandbot-exec
+    sandbot-interactive
   ];
 }
