@@ -141,22 +141,27 @@ let
 
   sandbot-run = pkgs.writeShellScriptBin "sandbot-run" ''
     set -ueo pipefail
-    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex --full-auto --model o3
+    exec ${sandbot}/bin/sandbot codex --full-auto --model o3 "$@"
   '';
 
   sandbot-shell = pkgs.writeShellScriptBin "sandbot-shell" ''
     set -ueo pipefail
-    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" ${pkgs.bash}/bin/bash
+    exec ${sandbot}/bin/sandbot ${pkgs.bash}/bin/bash
   '';
 
   sandbot-exec = pkgs.writeShellScriptBin "sandbot-exec" ''
     set -ueo pipefail
-    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex exec "$@"
+    exec ${sandbot}/bin/sandbot codex exec "$@"
   '';
 
   sandbot-interactive = pkgs.writeShellScriptBin "sandbot-interactive" ''
     set -ueo pipefail
-    "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" codex "$@"
+    exec ${sandbot}/bin/sandbot codex "$@"
+  '';
+
+  sandbot = pkgs.writeShellScriptBin "sandbot" ''
+    set -ueo pipefail
+    exec "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" "$@"
   '';
 in
 pkgs.symlinkJoin {
@@ -167,5 +172,6 @@ pkgs.symlinkJoin {
     sandbot-shell
     sandbot-exec
     sandbot-interactive
+    sandbot
   ];
 }
