@@ -6,7 +6,7 @@ let
   };
   pkgs = import nixpkgs_src { };
 
-  codex = make_codex pkgs;
+  codex = import ./codex.nix pkgs;
   make_codex =
     {
       fetchFromGitHub,
