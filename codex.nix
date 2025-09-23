@@ -1,38 +1,63 @@
 {
-  stdenv,
-  fetchurl,
   lib,
+  rustPlatform,
+  fetchFromGitHub,
+  nix-update-script,
+  pkg-config,
+  openssl,
+  versionCheckHook,
   ...
 }:
-
-stdenv.mkDerivation rec {
+rustPlatform.buildRustPackage (finalAttrs: {
   pname = "codex";
-  version = "0.7.0";
+  version = "0.4.0";
 
-  src = fetchurl {
-    url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-x86_64-unknown-linux-musl.tar.gz";
-    sha256 = "sha256-zzU7Fc7aHwfeP1w069SjdSivBB8TqqN5i1rs3SBZT3k=";
+  src = fetchFromGitHub {
+    owner = "openai";
+    repo = "codex";
+    tag = "rust-v${finalAttrs.version}";
+    hash = "sha256-rRe0JFEO5ixxrZYDL8kxXDOH0n7lqabkXNNaSlNnQDg=";
   };
 
-  phases = [
-    "unpackPhase"
-    "installPhase"
+  sourceRoot = "${finalAttrs.src.name}/codex-rs";
+
+  useFetchCargoVendor = true;
+  cargoHash = "sha256-QIZ3V4NUo1VxJN3cwdQf3S0zwePnwdKKfch0jlIJacU=";
+
+  nativeBuildInputs = [
+    pkg-config
+  ];
+  buildInputs = [
+    openssl
   ];
 
-  unpackPhase = ''
-    runHook preUnpack
-    tar xvf $src
-    runHook postUnpack
-  '';
+  checkFlags = [
+    "--skip=keeps_previous_response_id_between_tasks" # Requires network access
+    "--skip=retries_on_early_close" # Requires network access
+  ];
 
-  installPhase = ''
-    mkdir -p $out/bin
-    cp codex-x86_64-unknown-linux-musl $out/bin/codex
-  '';
+  doInstallCheck = true;
+  nativeInstallCheckInputs = [ versionCheckHook ];
+
+  passthru = {
+    updateScript = nix-update-script {
+      extraArgs = [
+        "--version-regex"
+        "^rust-v(\\d+\\.\\d+\\.\\d+)$"
+      ];
+    };
+  };
 
   meta = {
-    description = "Codex command-line tool";
+    description = "Lightweight coding agent that runs in your terminal";
+    homepage = "https://github.com/openai/codex";
+    changelog = "https://raw.githubusercontent.com/openai/codex/refs/tags/rust-v${finalAttrs.version}/CHANGELOG.md";
     license = lib.licenses.asl20;
-    platforms = [ "x86_64-linux" ];
+    mainProgram = "codex";
+    maintainers = with lib.maintainers; [
+      malo
+      delafthi
+    ];
+    platforms = lib.platforms.unix;
   };
-}
+})
