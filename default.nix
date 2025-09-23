@@ -1,40 +1,31 @@
 { ... }:
 let
   nixpkgs_src = builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/5cfaab2c5c1492cbec3e5e85a4dca8601858a06a.tar.gz";
-    sha256 = "sha256:13fs75rars50m49ngxbnk1ms4k2gv7ll9zwf6y64wlvpzw44vwnr";
+    url =
+      "https://github.com/NixOS/nixpkgs/archive/2e6dd569f2777e552640d3089854cb35f46193c2.tar.gz";
+    sha256 = "sha256:07nlrm5cj0q4q92djm0vfjasxhvvc7happ4pwrz0ij32rdlf4g4x";
   };
   pkgs = import nixpkgs_src { };
 
-  codex = import ./codex.nix pkgs;
+  codex = import ./codex.nix { inherit pkgs; };
 
   codex_o3 = pkgs.writeShellScriptBin "codex-o3" ''
     exec ${codex}/bin/codex --full-auto --model o3 "$@"
   '';
 
-  allowPodmanLoad = pkgs.writeText "podman-policy.json" (
-    builtins.toJSON {
-      default = [ { type = "reject"; } ];
-      transports = {
-        docker-archive = {
-          "" = [
-            {
-              type = "insecureAcceptAnything";
-            }
-          ];
-        };
-      };
-    }
-  );
+  allowPodmanLoad = pkgs.writeText "podman-policy.json" (builtins.toJSON {
+    default = [{ type = "reject"; }];
+    transports = {
+      docker-archive = { "" = [{ type = "insecureAcceptAnything"; }]; };
+    };
+  });
 
-  empty_tmpdir = (
-    pkgs.stdenv.mkDerivation {
-      name = "tmp";
-      buildCommand = ''
-        mkdir -p $out/tmp
-      '';
-    }
-  );
+  empty_tmpdir = (pkgs.stdenv.mkDerivation {
+    name = "tmp";
+    buildCommand = ''
+      mkdir -p $out/tmp
+    '';
+  });
   link_loader = pkgs.runCommand "link-loader" { } ''
     # common tools need /lib64/ld-linux-x86-64.so.2 to exist, this is what nix-ld is for
     # I couldn't find the the derivation for the ld-linux-x86-64.so.2 from nix-ld so I
@@ -163,8 +154,7 @@ let
     set -ueo pipefail
     exec "${pkgs.podman}/bin/podman" run --rm -it -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" "$@"
   '';
-in
-pkgs.symlinkJoin {
+in pkgs.symlinkJoin {
   name = "sandbot";
   paths = [
     sandbot-load

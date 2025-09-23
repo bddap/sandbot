@@ -1,63 +1,19 @@
-{
-  lib,
-  rustPlatform,
-  fetchFromGitHub,
-  nix-update-script,
-  pkg-config,
-  openssl,
-  versionCheckHook,
-  ...
-}:
-rustPlatform.buildRustPackage (finalAttrs: {
-  pname = "codex";
-  version = "0.4.0";
-
-  src = fetchFromGitHub {
+{ pkgs, ... }:
+let
+  codexSrc = pkgs.fetchFromGitHub {
     owner = "openai";
     repo = "codex";
-    tag = "rust-v${finalAttrs.version}";
-    hash = "sha256-rRe0JFEO5ixxrZYDL8kxXDOH0n7lqabkXNNaSlNnQDg=";
+    rev = "5268705a69713752adcbd8416ef9e84a683f7aa3";
+    sha256 = "sha256-IBYx362R2ueYNg7/vcjGa2kKAfGlPm6JcZ/A4XKtMT4=";
   };
-
-  sourceRoot = "${finalAttrs.src.name}/codex-rs";
-
-  useFetchCargoVendor = true;
-  cargoHash = "sha256-QIZ3V4NUo1VxJN3cwdQf3S0zwePnwdKKfch0jlIJacU=";
-
-  nativeBuildInputs = [
-    pkg-config
-  ];
-  buildInputs = [
-    openssl
-  ];
-
-  checkFlags = [
-    "--skip=keeps_previous_response_id_between_tasks" # Requires network access
-    "--skip=retries_on_early_close" # Requires network access
-  ];
-
-  doInstallCheck = true;
-  nativeInstallCheckInputs = [ versionCheckHook ];
-
-  passthru = {
-    updateScript = nix-update-script {
-      extraArgs = [
-        "--version-regex"
-        "^rust-v(\\d+\\.\\d+\\.\\d+)$"
-      ];
+  codex = (import "${codexSrc}/codex-rs" { inherit pkgs; }).package;
+  codexFixed = codex.overrideAttrs (prev: {
+    cargoDeps = pkgs.rustPlatform.importCargoLock {
+      lockFile = "${prev.src}/Cargo.lock";
+      outputHashes = {
+        "ratatui-0.29.0" =
+          "sha256-HBvT5c8GsiCxMffNjJGLmHnvG77A6cqEL+1ARurBXho=";
+      };
     };
-  };
-
-  meta = {
-    description = "Lightweight coding agent that runs in your terminal";
-    homepage = "https://github.com/openai/codex";
-    changelog = "https://raw.githubusercontent.com/openai/codex/refs/tags/rust-v${finalAttrs.version}/CHANGELOG.md";
-    license = lib.licenses.asl20;
-    mainProgram = "codex";
-    maintainers = with lib.maintainers; [
-      malo
-      delafthi
-    ];
-    platforms = lib.platforms.unix;
-  };
-})
+  });
+in codexFixed
