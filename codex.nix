@@ -15,5 +15,6 @@ let
           "sha256-HBvT5c8GsiCxMffNjJGLmHnvG77A6cqEL+1ARurBXho=";
       };
     };
+    patches = prev.patches ++ [ ./codex-allow-pid1.patch ];
   });
 in codexFixed

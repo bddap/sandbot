@@ -9,10 +9,6 @@ let
 
   codex = import ./codex.nix { inherit pkgs; };
 
-  codex_o3 = pkgs.writeShellScriptBin "codex-o3" ''
-    exec ${codex}/bin/codex --full-auto --model o3 "$@"
-  '';
-
   allowPodmanLoad = pkgs.writeText "podman-policy.json" (builtins.toJSON {
     default = [{ type = "reject"; }];
     transports = {
@@ -38,7 +34,6 @@ let
   # Add shared libraries for uv’s custom Python below:
   image_packages = [
     codex
-    codex_o3
     # pkgs.cargo
     # pkgs.clippy
     # pkgs.rustfmt
@@ -74,17 +69,17 @@ let
   ];
 
   common_shared_libs = [
-    # pkgs.glibc
-    # pkgs.zlib
-    # pkgs.bzip2
-    # pkgs.xz
-    # pkgs.ncurses
-    # pkgs.openssl
-    # pkgs.gdbm
-    # pkgs.sqlite
-    # pkgs.readline
-    # pkgs.libffi
-    # pkgs.libnsl
+    pkgs.glibc
+    pkgs.zlib
+    pkgs.bzip2
+    pkgs.xz
+    pkgs.ncurses
+    pkgs.openssl
+    pkgs.gdbm
+    pkgs.sqlite
+    pkgs.readline
+    pkgs.libffi
+    pkgs.libnsl
   ];
 
   image_extras = [
@@ -130,24 +125,17 @@ let
     ${write_container} | "${pkgs.podman}/bin/podman" load --signature-policy ${allowPodmanLoad}
   '';
 
-  sandbot-run = pkgs.writeShellScriptBin "sandbot-run" ''
+  sandbot-codex = pkgs.writeShellScriptBin "sandbot-codex" ''
     set -ueo pipefail
-    exec ${sandbot}/bin/sandbot codex --full-auto --model o3 "$@"
-  '';
-
-  sandbot-shell = pkgs.writeShellScriptBin "sandbot-shell" ''
-    set -ueo pipefail
-    exec ${sandbot}/bin/sandbot ${pkgs.bash}/bin/bash
-  '';
-
-  sandbot-exec = pkgs.writeShellScriptBin "sandbot-exec" ''
-    set -ueo pipefail
-    exec ${sandbot}/bin/sandbot codex exec "$@"
-  '';
-
-  sandbot-interactive = pkgs.writeShellScriptBin "sandbot-interactive" ''
-    set -ueo pipefail
-    exec ${sandbot}/bin/sandbot codex "$@"
+    exec ${sandbot}/bin/sandbot env RUST_LOG=debug codex \
+      --dangerously-bypass-approvals-and-sandbox \
+      -c 'approval_policy=on-failure' \
+      -c 'sandbox_mode=danger-full-access' \
+      -c 'model_providers.a.env_key=OPENAI_API_KEY' \
+      -c 'model_providers.a.name=openai' \
+      -c 'model_providers.a.wire_api=responses' \
+      -c 'model_provider=a' \
+      "$@"
   '';
 
   sandbot = pkgs.writeShellScriptBin "sandbot" ''
@@ -156,12 +144,5 @@ let
   '';
 in pkgs.symlinkJoin {
   name = "sandbot";
-  paths = [
-    sandbot-load
-    sandbot-run
-    sandbot-shell
-    sandbot-exec
-    sandbot-interactive
-    sandbot
-  ];
+  paths = [ sandbot-load sandbot-codex sandbot ];
 }
