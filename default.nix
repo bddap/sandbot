@@ -127,7 +127,7 @@ let
 
   sandbot-codex = pkgs.writeShellScriptBin "sandbot-codex" ''
     set -ueo pipefail
-    exec ${sandbot}/bin/sandbot env RUST_LOG=debug codex \
+    exec ${sandbot}/bin/sandbot env codex \
       --dangerously-bypass-approvals-and-sandbox \
       -c 'approval_policy=on-failure' \
       -c 'sandbox_mode=danger-full-access' \
