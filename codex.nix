@@ -1,6 +1,8 @@
-{ pkgs, ... }:
+
+
+{ pkgs, fetchFromGitHub }:
 let
-  codexSrc = pkgs.fetchFromGitHub {
+  codexSrc = fetchFromGitHub {
     owner = "openai";
     repo = "codex";
     rev = "5268705a69713752adcbd8416ef9e84a683f7aa3";
