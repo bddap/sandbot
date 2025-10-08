@@ -74,11 +74,12 @@ let
   ];
 
   image_extras = [
+    ./root
     nix_conf
     pkgs.dockerTools.usrBinEnv
     pkgs.dockerTools.binSh
     pkgs.dockerTools.caCertificates
-    pkgs.dockerTools.fakeNss
+    # pkgs.dockerTools.fakeNss
     empty_tmpdir
     link_loader
   ];
