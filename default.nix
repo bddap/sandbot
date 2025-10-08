@@ -52,8 +52,14 @@ let
       "$@"
   '';
 
+  cexec = pkgs.writeShellScriptBin "cexec" ''
+    set -ueo pipefail
+    exec codex-wrapper exec --skip-git-repo-check "$@"
+  '';
+
   image_packages = [
     codex-wrapper
+    cexec
     codex
     pkgs.ripgrep # codex prefers rg (it's built into the system prompt)
     pkgs.bash # bash is also built into the system prompt
