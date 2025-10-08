@@ -68,7 +68,6 @@ let
   ];
 
   image_extras = [
-    # ./root
     nix_conf
     pkgs.dockerTools.usrBinEnv
     pkgs.dockerTools.binSh
@@ -143,7 +142,7 @@ let
     bot_name="$1"
     container_name="sandbot-$bot_name"
     shift
-    "${pkgs.podman}/bin/podman" rm "$container_name"
+    "${pkgs.podman}/bin/podman" rm -f "$container_name"
   '';
 in pkgs.symlinkJoin {
   name = "sandbot";
