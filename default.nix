@@ -64,9 +64,11 @@ let
     pkgs.ripgrep # codex prefers rg (it's built into the system prompt)
     pkgs.bash # bash is also built into the system prompt
     pkgs.nix # expect codex to use nix to manage its own dev environments
-    pkgs.coreutils
+    pkgs.coreutils-full
     pkgs.git
-    # pkgs.curl pkgs.jq pkgs.procps pkgs.psmisc pkgs.bash pkgs.coreutils-full pkgs.gnused pkgs.gawk pkgs.gnugrep pkgs.file pkgs.findutils pkgs.which
+    pkgs.jq
+    pkgs.gawk
+    # pkgs.curl pkgs.procps pkgs.psmisc pkgs.bash pkgs.gnugrep pkgs.file pkgs.findutils pkgs.which
   ];
 
   common_shared_libs = [
