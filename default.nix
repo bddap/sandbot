@@ -1,10 +1,6 @@
 { ... }:
 let
-  nixpkgs_src = builtins.fetchTarball {
-    url =
-      "https://github.com/NixOS/nixpkgs/archive/2e6dd569f2777e552640d3089854cb35f46193c2.tar.gz";
-    sha256 = "sha256:07nlrm5cj0q4q92djm0vfjasxhvvc7happ4pwrz0ij32rdlf4g4x";
-  };
+  nixpkgs_src = (import ./nix/sources.nix).nixpkgs;
   pkgs = import nixpkgs_src { };
 
   codex = pkgs.callPackage ./codex.nix { };
@@ -58,6 +54,7 @@ let
   '';
 
   image_packages = [
+    pkgs.gemini-cli
     codex-wrapper
     cexec
     codex
