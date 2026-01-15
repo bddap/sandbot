@@ -118,8 +118,7 @@ let
     container_name="sandbot-$bot_name"
 
     if [ -z "''${OPENAI_API_KEY:-}" ]; then
-      echo "Set OPENAI_API_KEY dumbass."
-      exit 1
+      echo "Careful, you didn't set OPENAI_API_KEY."
     fi
 
     ${pkgs.podman}/bin/podman create -it --replace --name "$container_name" -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" sleep 10000d
