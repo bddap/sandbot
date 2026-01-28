@@ -1,7 +1,7 @@
 { ... }:
 let
   nixpkgs_src = (import ./nix/sources.nix).nixpkgs;
-  pkgs = import nixpkgs_src { };
+  pkgs = import nixpkgs_src { config.allowUnfree = true; };
 
   codex = pkgs.callPackage ./codex.nix { };
 
@@ -53,6 +53,7 @@ let
     codex-wrapper
     cexec
     codex
+    pkgs.claude-code
     pkgs.ripgrep
     pkgs.bash
     pkgs.nix
@@ -114,11 +115,17 @@ let
     if [ -z "''${OPENAI_API_KEY:-}" ]; then
       echo "Careful, you didn't set OPENAI_API_KEY."
     fi
+    if [ -z "''${ANTHROPIC_KEY:-}" ]; then
+      echo "Careful, you didn't set ANTHROPIC_KEY."
+    fi
 
-    ${pkgs.podman}/bin/podman create -it --replace --name "$container_name" -e OPENAI_API_KEY -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" sleep 10000d
+    ${pkgs.podman}/bin/podman create -it --replace --name "$container_name" \
+        -e OPENAI_API_KEY -e ANTHROPIC_KEY \
+        -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" \
+        sleep 10000d
     ${pkgs.podman}/bin/podman start "$container_name"
     echo "Created container $container_name" >&2
-    echo "You can now run commands within the sandbox with: sandbot-exec $container_name <command> [args...]" >&2
+    echo "You can now run commands within the sandbox with: sandbot-exec $bot_name <command> [args...]" >&2
   '';
 
   sandbot-destroy = pkgs.writeShellScriptBin "sandbot-destroy" ''
