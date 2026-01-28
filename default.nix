@@ -20,16 +20,11 @@ let
   });
 
   link_loader = pkgs.runCommand "link-loader" { } ''
-    # common tools need /lib64/ld-linux-x86-64.so.2 to exist, this is normally what nix-ld is
-    # for. since we have the power to simply add files to the image, we do that instead.
-    # I couldn't find the the derivation for the ld-linux-x86-64.so.2 from nix-ld so I
-    # pull the one from glibc like a goof.
-    # this one will read LD_LIBRARY_PATH instead of NIX_LD_LIBRARY_PATH?
+    # common tools need /lib64/ld-linux-x86-64.so.2 to exist. We'll just link glibc's loader here.
     mkdir -p $out/lib64
     ln -s ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 $out/lib64/ld-linux-x86-64.so.2
   '';
 
-  # write to %out/etc/nix/nix.conf
   nix_conf = pkgs.writeTextDir "etc/nix/nix.conf" ''
     # experimental-features = nix-command flakes
     # build-users-group =
@@ -58,19 +53,16 @@ let
     codex-wrapper
     cexec
     codex
-    pkgs.ripgrep # codex prefers rg (it's built into the system prompt)
-    pkgs.bash # bash is also built into the system prompt
-    pkgs.nix # expect codex to use nix to manage its own dev environments
+    pkgs.ripgrep
+    pkgs.bash
+    pkgs.nix
     pkgs.coreutils-full
     pkgs.git
     pkgs.jq
     pkgs.gawk
-    # pkgs.curl pkgs.procps pkgs.psmisc pkgs.bash pkgs.gnugrep pkgs.file pkgs.findutils pkgs.which
   ];
 
-  common_shared_libs = [
-    # pkgs.glibc pkgs.zlib pkgs.bzip2 pkgs.xz pkgs.ncurses pkgs.openssl pkgs.gdbm pkgs.sqlite pkgs.readline pkgs.libffi pkgs.libnsl
-  ];
+  common_shared_libs = [ ];
 
   image_extras = [
     ./root
@@ -78,7 +70,6 @@ let
     pkgs.dockerTools.usrBinEnv
     pkgs.dockerTools.binSh
     pkgs.dockerTools.caCertificates
-    # pkgs.dockerTools.fakeNss
     empty_tmpdir
     link_loader
   ];
@@ -110,11 +101,14 @@ let
 
   sandbot-create = pkgs.writeShellScriptBin "sandbot-create" ''
     set -ueo pipefail
-    if [ $# -ne 1 ]; then
-      echo "Usage: $0 <bot-name>"
-      exit 1
+
+    if [ $# -ge 1 ]; then
+      bot_name="$1"
+    else
+      # generate from the full CWD
+      safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
+      bot_name="$safe_string"
     fi
-    bot_name="$1"
     container_name="sandbot-$bot_name"
 
     if [ -z "''${OPENAI_API_KEY:-}" ]; then
@@ -125,6 +119,22 @@ let
     ${pkgs.podman}/bin/podman start "$container_name"
     echo "Created container $container_name" >&2
     echo "You can now run commands within the sandbox with: sandbot-exec $container_name <command> [args...]" >&2
+  '';
+
+  sandbot-destroy = pkgs.writeShellScriptBin "sandbot-destroy" ''
+    set -ueo pipefail
+
+    if [ $# -ge 1 ]; then
+      bot_name="$1"
+      shift
+    else
+      # generate from the full CWD
+      safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
+      bot_name="$safe_string"
+    fi
+
+    container_name="sandbot-$bot_name"
+    "${pkgs.podman}/bin/podman" rm -f "$container_name"
   '';
 
   sandbot-exec = pkgs.writeShellScriptBin "sandbot-exec" ''
@@ -138,18 +148,21 @@ let
     "${pkgs.podman}/bin/podman" exec --tty --interactive "sandbot-$bot_name" "$@"
   '';
 
-  sandbot-destroy = pkgs.writeShellScriptBin "sandbot-destroy" ''
+  sandbot = pkgs.writeShellScriptBin "sandbot" ''
     set -ueo pipefail
+    # Derive bot name from cwd
+    safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
+    bot_name="$safe_string"
+    container_name="sandbot-$bot_name"
+
     if [ $# -lt 1 ]; then
-      echo "Usage: $0 <bot-name>"
+      echo "Usage: $0 <command> [args...]"
       exit 1
     fi
-    bot_name="$1"
-    container_name="sandbot-$bot_name"
-    shift
-    "${pkgs.podman}/bin/podman" rm -f "$container_name"
+
+    exec "${pkgs.podman}/bin/podman" exec --tty --interactive "$container_name" "$@"
   '';
 in pkgs.symlinkJoin {
   name = "sandbot";
-  paths = [ sandbot-load sandbot-create sandbot-exec sandbot-destroy ];
+  paths = [ sandbot-load sandbot-create sandbot-exec sandbot-destroy sandbot ];
 }
