@@ -58,6 +58,8 @@ let
     pkgs.bash
     pkgs.nix
     pkgs.coreutils-full
+    pkgs.findutils
+    pkgs.gnugrep
     pkgs.git
     pkgs.jq
     pkgs.gawk
@@ -91,6 +93,7 @@ let
         "USER=root"
         "CARGO_TARGET_DIR=/root/cargo-target"
         "UV_VENV_DIR=/root/uv-venv"
+        "IS_SANDBOX=1" # prevent overzealous claude-code from disabling running as root https://github.com/anthropics/claude-code/issues/927
       ];
     };
   };
