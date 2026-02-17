@@ -104,6 +104,31 @@ let
     ${write_image} | "${pkgs.podman}/bin/podman" load --signature-policy ${allowPodmanLoad}
   '';
 
+  sandbot-persistence-root = pkgs.writeShellScriptBin "sandbot-persistence-root" ''
+    set -ueo pipefail
+
+    if [ $# -lt 1 ]; then
+      echo "Usage: $0 <bot-name>" >&2
+      exit 1
+    fi
+
+    bot_name="$1"
+
+    persistence_base="''${XDG_STATE_HOME:-}"
+    if [ -n "$persistence_base" ]; then
+      sandbox_root="$persistence_base/sandbot/$bot_name"
+    else
+      xdg_data_home="''${XDG_DATA_HOME:-}"
+      if [ -n "$xdg_data_home" ]; then
+        sandbox_root="$xdg_data_home/sandbot/$bot_name"
+      else
+        sandbox_root="$HOME/.local/state/sandbot/$bot_name"
+      fi
+    fi
+
+    printf '%s\n' "$sandbox_root"
+  '';
+
   sandbot-create = pkgs.writeShellScriptBin "sandbot-create" ''
     set -ueo pipefail
 
@@ -116,18 +141,7 @@ let
     fi
     container_name="sandbot-$bot_name"
 
-    # Choose a persistence root directory, preferring XDG locations when available.
-    persistence_base="''${XDG_STATE_HOME:-}"
-    if [ -n "$persistence_base" ]; then
-      sandbox_root="$persistence_base/sandbot/$bot_name"
-    else
-      xdg_data_home="''${XDG_DATA_HOME:-}"
-      if [ -n "$xdg_data_home" ]; then
-        sandbox_root="$xdg_data_home/sandbot/$bot_name"
-      else
-        sandbox_root="$HOME/.local/state/sandbot/$bot_name"
-      fi
-    fi
+    sandbox_root="$(${sandbot-persistence-root}/bin/sandbot-persistence-root "$bot_name")"
 
     # Ensure directories exist for OpenCode persistence.
     for rel in .config/opencode .local/share/opencode .local/state/opencode .cache/opencode; do
@@ -172,6 +186,27 @@ let
     "${pkgs.podman}/bin/podman" rm -f "$container_name"
   '';
 
+  sandbot-destroy-data = pkgs.writeShellScriptBin "sandbot-destroy-data" ''
+    set -ueo pipefail
+
+    if [ $# -ge 1 ]; then
+      bot_name="$1"
+    else
+      safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
+      bot_name="$safe_string"
+    fi
+
+    sandbox_root="$(${sandbot-persistence-root}/bin/sandbot-persistence-root "$bot_name")"
+
+    if [ ! -d "$sandbox_root" ]; then
+      echo "No persisted data found for $bot_name at $sandbox_root" >&2
+      exit 0
+    fi
+
+    rm -rf -- "$sandbox_root"
+    echo "Removed persisted OpenCode data at $sandbox_root" >&2
+  '';
+
   sandbot-exec = pkgs.writeShellScriptBin "sandbot-exec" ''
     set -ueo pipefail
     if [ $# -lt 1 ]; then
@@ -199,5 +234,5 @@ let
   '';
 in pkgs.symlinkJoin {
   name = "sandbot";
-  paths = [ sandbot-load sandbot-create sandbot-exec sandbot-destroy sandbot ];
+  paths = [ sandbot-load sandbot-create sandbot-exec sandbot-destroy sandbot-destroy-data sandbot-persistence-root sandbot ];
 }
