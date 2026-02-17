@@ -116,6 +116,24 @@ let
     fi
     container_name="sandbot-$bot_name"
 
+    # Choose a persistence root directory, preferring XDG locations when available.
+    persistence_base="''${XDG_STATE_HOME:-}"
+    if [ -n "$persistence_base" ]; then
+      sandbox_root="$persistence_base/sandbot/$bot_name"
+    else
+      xdg_data_home="''${XDG_DATA_HOME:-}"
+      if [ -n "$xdg_data_home" ]; then
+        sandbox_root="$xdg_data_home/sandbot/$bot_name"
+      else
+        sandbox_root="$HOME/.local/state/sandbot/$bot_name"
+      fi
+    fi
+
+    # Ensure directories exist for OpenCode persistence.
+    for rel in .config/opencode .local/share/opencode .local/state/opencode .cache/opencode; do
+      mkdir -p "$sandbox_root/$rel"
+    done
+
     if [ -z "''${OPENAI_API_KEY:-}" ]; then
       echo "Careful, you didn't set OPENAI_API_KEY."
     fi
@@ -125,10 +143,16 @@ let
 
     ${pkgs.podman}/bin/podman create -it --replace --name "$container_name" \
         -e OPENAI_API_KEY -e ANTHROPIC_API_KEY \
-        -v "$(pwd):/workdir" "sandbot-devshell:sandbot-devshell" \
+        -v "$(pwd):/workdir" \
+        -v "$sandbox_root/.config/opencode:/root/.config/opencode" \
+        -v "$sandbox_root/.local/share/opencode:/root/.local/share/opencode" \
+        -v "$sandbox_root/.local/state/opencode:/root/.local/state/opencode" \
+        -v "$sandbox_root/.cache/opencode:/root/.cache/opencode" \
+        "sandbot-devshell:sandbot-devshell" \
         sleep 10000d
     ${pkgs.podman}/bin/podman start "$container_name"
     echo "Created container $container_name" >&2
+    echo "OpenCode data persisted under $sandbox_root" >&2
     echo "You can now run commands within the sandbox with: sandbot-exec $bot_name <command> [args...]" >&2
   '';
 
