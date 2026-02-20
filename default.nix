@@ -64,6 +64,7 @@ let
     pkgs.git
     pkgs.jq
     pkgs.gawk
+    pkgs.which
   ];
 
   common_shared_libs = [ ];
