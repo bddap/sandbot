@@ -156,7 +156,20 @@ let
       echo "Careful, you didn't set ANTHROPIC_API_KEY."
     fi
 
+    # SANDBOT_GPU=1 grants the container direct access to the host's NVIDIA GPU.
+    # Note: GPU memory is not namespaced -- processes inside the container can
+    # potentially read GPU memory from other processes sharing the same GPU.
+    # Avoid using this on a GPU that handles sensitive host workloads.
+    gpu_flags=()
+    if [ "''${SANDBOT_GPU:-0}" = "1" ]; then
+      gpu_flags+=(--device nvidia.com/gpu=all)
+      gpu_flags+=(-e NVIDIA_VISIBLE_DEVICES=all)
+      gpu_flags+=(-e NVIDIA_DRIVER_CAPABILITIES=compute,utility)
+      echo "GPU access enabled." >&2
+    fi
+
     ${pkgs.podman}/bin/podman create -it --replace --name "$container_name" \
+        "''${gpu_flags[@]}" \
         -e OPENAI_API_KEY -e ANTHROPIC_API_KEY \
         -v "$(pwd):/workdir" \
         -v "$sandbox_root/.config/opencode:/root/.config/opencode" \
