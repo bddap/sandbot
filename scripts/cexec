@@ -1,0 +1,4 @@
+#!/bin/sh
+# cexec: one-shot non-interactive codex, skipping the git-repo check.
+set -ue
+exec codex-wrapper exec --skip-git-repo-check "$@"
