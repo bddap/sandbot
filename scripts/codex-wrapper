@@ -1,0 +1,16 @@
+#!/bin/sh
+# codex-wrapper: invoke codex with sandbox-appropriate defaults.
+#
+# The host-side podman sandbox is already providing isolation, so codex itself
+# doesn't need its own approval/sandbox layer on top. This wrapper tells codex
+# to trust its environment and uses OPENAI_API_KEY via the "a" provider shim.
+set -ue
+exec codex \
+  --dangerously-bypass-approvals-and-sandbox \
+  -c 'approval_policy=on-failure' \
+  -c 'sandbox_mode=danger-full-access' \
+  -c 'model_providers.a.env_key=OPENAI_API_KEY' \
+  -c 'model_providers.a.name=openai' \
+  -c 'model_providers.a.wire_api=responses' \
+  -c 'model_provider=a' \
+  "$@"

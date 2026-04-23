@@ -1,174 +1,148 @@
+# sandbot -- host-side tooling for per-project agent sandboxes.
+#
+# This file only builds the *launcher* scripts that run on the host. The
+# sandbox image is built by `podman build` from ./Containerfile (see
+# sandbot-build below); Nix is not involved in the image contents and is
+# not present inside the container.
+#
+# Responsibilities:
+#   * Pin podman (and niv-pinned nixpkgs for podman's version).
+#   * Provide `sandbot-build` to build ./Containerfile into a local image.
+#   * Provide the user-facing CLI: sandbot-create / -exec / -destroy /
+#     -destroy-data / -persistence-root, plus the bare `sandbot` shortcut.
+#
+# See README.md for architecture and design goals.
+
 { ... }:
+
 let
   nixpkgs_src = (import ./nix/sources.nix).nixpkgs;
   pkgs = import nixpkgs_src { config.allowUnfree = true; };
 
-  codex = pkgs.callPackage ./codex.nix { };
+  podman = pkgs.podman;
 
-  allowPodmanLoad = pkgs.writeText "podman-policy.json" (builtins.toJSON {
-    default = [{ type = "reject"; }];
-    transports = {
-      docker-archive = { "" = [{ type = "insecureAcceptAnything"; }]; };
-    };
-  });
+  # Parse agent-versions.env into Nix values so `sandbot-build` can pass
+  # every pin down to `podman build --build-arg`.
+  versionsFile = ./agent-versions.env;
+  parseEnv = text:
+    let
+      lines = builtins.filter
+        (l: l != "" && !(pkgs.lib.hasPrefix "#" l))
+        (pkgs.lib.splitString "\n" text);
+      toPair = line:
+        let
+          m = builtins.match ''([A-Z_][A-Z0-9_]*)="?([^"]*)"?'' line;
+        in
+          if m == null then null else { name = builtins.elemAt m 0; value = builtins.elemAt m 1; };
+      pairs = builtins.filter (p: p != null) (map toPair lines);
+    in
+      builtins.listToAttrs pairs;
+  versions = parseEnv (builtins.readFile versionsFile);
 
-  empty_tmpdir = (pkgs.stdenv.mkDerivation {
-    name = "tmp";
-    buildCommand = ''
-      mkdir -p $out/tmp
-    '';
-  });
+  # Escape a value for safe inclusion in a double-quoted shell string.
+  shEscape = s: builtins.replaceStrings [ "\\" "\"" "$" "`" ] [ "\\\\" "\\\"" "\\$" "\\`" ] s;
 
-  link_loader = pkgs.runCommand "link-loader" { } ''
-    # common tools need /lib64/ld-linux-x86-64.so.2 to exist. We'll just link glibc's loader here.
-    mkdir -p $out/lib64
-    ln -s ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 $out/lib64/ld-linux-x86-64.so.2
-  '';
+  buildArgsShell = pkgs.lib.concatStringsSep " " (map
+    (name: "--build-arg ${name}=\"${shEscape versions.${name}}\"")
+    (builtins.attrNames versions));
 
-  nix_conf = pkgs.writeTextDir "etc/nix/nix.conf" ''
-    # experimental-features = nix-command flakes
-    # build-users-group =
-  '';
+  imageTag = "sandbot-devshell:latest";
 
-  codex-wrapper = pkgs.writeShellScriptBin "codex-wrapper" ''
+  # ---- sandbot-build -------------------------------------------------------
+  # Build the sandbox image from ./Containerfile, passing every pin in
+  # agent-versions.env as a --build-arg. Run from the directory containing
+  # Containerfile (the script resolves it via $SANDBOT_SRC or the cwd).
+  sandbot-build = pkgs.writeShellScriptBin "sandbot-build" ''
     set -ueo pipefail
-    exec codex \
-      --dangerously-bypass-approvals-and-sandbox \
-      -c 'approval_policy=on-failure' \
-      -c 'sandbox_mode=danger-full-access' \
-      -c 'model_providers.a.env_key=OPENAI_API_KEY' \
-      -c 'model_providers.a.name=openai' \
-      -c 'model_providers.a.wire_api=responses' \
-      -c 'model_provider=a' \
-      "$@"
+    src="''${SANDBOT_SRC:-${toString ./.}}"
+    if [ ! -f "$src/Containerfile" ]; then
+      echo "sandbot-build: Containerfile not found at $src/Containerfile" >&2
+      echo "Set SANDBOT_SRC to the directory containing Containerfile." >&2
+      exit 1
+    fi
+    echo "Building ${imageTag} from $src/Containerfile ..." >&2
+    exec "${podman}/bin/podman" build \
+      --pull=newer \
+      -f "$src/Containerfile" \
+      -t "${imageTag}" \
+      ${buildArgsShell} \
+      "$src"
   '';
 
-  cexec = pkgs.writeShellScriptBin "cexec" ''
-    set -ueo pipefail
-    exec codex-wrapper exec --skip-git-repo-check "$@"
-  '';
-
-  image_packages = [
-    pkgs.gemini-cli
-    codex-wrapper
-    cexec
-    codex
-    pkgs.claude-code
-    pkgs.opencode
-    pkgs.ripgrep
-    pkgs.bash
-    pkgs.nix
-    pkgs.coreutils-full
-    pkgs.findutils
-    pkgs.gnugrep
-    pkgs.git
-    pkgs.jq
-    pkgs.gawk
-    pkgs.which
-  ];
-
-  common_shared_libs = [ ];
-
-  image_extras = [
-    ./root
-    nix_conf
-    pkgs.dockerTools.usrBinEnv
-    pkgs.dockerTools.binSh
-    pkgs.dockerTools.caCertificates
-    empty_tmpdir
-    link_loader
-  ];
-
-  write_image = pkgs.dockerTools.streamLayeredImage {
-    name = "sandbot-devshell";
-    tag = "sandbot-devshell";
-    contents = pkgs.buildEnv {
-      name = "dev-packages";
-      paths = image_packages ++ common_shared_libs ++ image_extras;
-    };
-    config = {
-      WorkingDir = "/workdir";
-      Env = [
-        "PATH=/usr/local/bin:/usr/bin:/bin"
-        "NIX_PATH=nixpkgs=${nixpkgs_src}"
-        "HOME=/root"
-        "USER=root"
-        "CARGO_TARGET_DIR=/root/cargo-target"
-        "UV_VENV_DIR=/root/uv-venv"
-        "IS_SANDBOX=1" # prevent overzealous claude-code from disabling running as root https://github.com/anthropics/claude-code/issues/927
-      ];
-    };
-  };
-
-  sandbot-load = pkgs.writeShellScriptBin "sandbot-load" ''
-    set -ueo pipefail
-    ${write_image} | "${pkgs.podman}/bin/podman" load --signature-policy ${allowPodmanLoad}
-  '';
-
+  # ---- sandbot-persistence-root -------------------------------------------
+  # Where per-bot agent state (opencode/codex/claude caches) lives on the host.
+  # XDG_STATE_HOME takes precedence; falls back to ~/.local/state/sandbot/<bot>.
   sandbot-persistence-root = pkgs.writeShellScriptBin "sandbot-persistence-root" ''
     set -ueo pipefail
-
     if [ $# -lt 1 ]; then
       echo "Usage: $0 <bot-name>" >&2
       exit 1
     fi
-
     bot_name="$1"
-
-    persistence_base="''${XDG_STATE_HOME:-}"
-    if [ -n "$persistence_base" ]; then
-      sandbox_root="$persistence_base/sandbot/$bot_name"
-    else
-      xdg_data_home="''${XDG_DATA_HOME:-}"
-      if [ -n "$xdg_data_home" ]; then
-        sandbox_root="$xdg_data_home/sandbot/$bot_name"
-      else
-        sandbox_root="$HOME/.local/state/sandbot/$bot_name"
-      fi
-    fi
-
-    printf '%s\n' "$sandbox_root"
+    base="''${XDG_STATE_HOME:-$HOME/.local/state}"
+    printf '%s\n' "$base/sandbot/$bot_name"
   '';
 
+  # ---- sandbot-create ------------------------------------------------------
+  # Create-or-replace a container named sandbot-<botname> backed by the
+  # devshell image. Bind-mounts the project at /workdir and per-bot agent
+  # state dirs under /root. Does NOT mount anything else from the host.
+  #
+  # Isolation posture:
+  #   --userns=auto           -> container root maps to an unprivileged
+  #                              dynamic host uid range
+  #   --cap-add=SYS_PTRACE    -> agents can strace/gdb (on top of the default
+  #                              podman cap set which already covers apt/ping)
+  #   --security-opt=no-new-privileges
+  #                           -> suid binaries inside can't escalate
+  #   network on              -> apt/pip/npm/cargo/curl "just work"
   sandbot-create = pkgs.writeShellScriptBin "sandbot-create" ''
     set -ueo pipefail
-
     if [ $# -ge 1 ]; then
       bot_name="$1"
     else
-      # generate from the full CWD
-      safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
-      bot_name="$safe_string"
+      bot_name="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
     fi
     container_name="sandbot-$bot_name"
-
     sandbox_root="$(${sandbot-persistence-root}/bin/sandbot-persistence-root "$bot_name")"
 
-    # Ensure directories exist for OpenCode persistence.
-    for rel in .config/opencode .local/share/opencode .local/state/opencode .cache/opencode; do
+    # Agent state dirs. Keep the list short and explicit -- anything an
+    # agent writes outside these is lost on sandbot-destroy (by design).
+    for rel in \
+        .config/opencode  .local/share/opencode  .local/state/opencode  .cache/opencode \
+        .config/codex     .local/share/codex \
+        .claude           .config/claude \
+        .config/gemini    .gemini ; do
       mkdir -p "$sandbox_root/$rel"
     done
 
     if [ -z "''${OPENAI_API_KEY:-}" ]; then
-      echo "Careful, you didn't set OPENAI_API_KEY."
+      echo "warning: OPENAI_API_KEY not set in the calling shell." >&2
     fi
     if [ -z "''${ANTHROPIC_API_KEY:-}" ]; then
-      echo "Careful, you didn't set ANTHROPIC_API_KEY."
+      echo "warning: ANTHROPIC_API_KEY not set in the calling shell." >&2
     fi
 
-    # SANDBOT_GPU=1 grants the container direct access to the host's NVIDIA GPU.
-    # Note: GPU memory is not namespaced -- processes inside the container can
-    # potentially read GPU memory from other processes sharing the same GPU.
-    # Avoid using this on a GPU that handles sensitive host workloads.
+    # SANDBOT_GPU=1 grants direct access to the host's NVIDIA GPU. Note: GPU
+    # memory is not namespaced -- processes in the container can potentially
+    # read GPU memory of other host processes sharing the same device.
     gpu_flags=()
     if [ "''${SANDBOT_GPU:-0}" = "1" ]; then
-      gpu_flags+=(--device nvidia.com/gpu=all)
-      gpu_flags+=(-e NVIDIA_VISIBLE_DEVICES=all)
-      gpu_flags+=(-e NVIDIA_DRIVER_CAPABILITIES=compute,utility)
+      gpu_flags+=(--device "nvidia.com/gpu=all")
+      gpu_flags+=(-e "NVIDIA_VISIBLE_DEVICES=all")
+      gpu_flags+=(-e "NVIDIA_DRIVER_CAPABILITIES=compute,utility")
       echo "GPU access enabled." >&2
     fi
 
-    ${pkgs.podman}/bin/podman create -it --replace --name "$container_name" \
+    if ! "${podman}/bin/podman" image exists "${imageTag}"; then
+      echo "error: image ${imageTag} not found. Run 'sandbot-build' first." >&2
+      exit 1
+    fi
+
+    "${podman}/bin/podman" create -it --replace --name "$container_name" \
+        --userns=auto \
+        --cap-add=SYS_PTRACE \
+        --security-opt=no-new-privileges \
         "''${gpu_flags[@]}" \
         -e OPENAI_API_KEY -e ANTHROPIC_API_KEY \
         -v "$(pwd):/workdir" \
@@ -176,77 +150,99 @@ let
         -v "$sandbox_root/.local/share/opencode:/root/.local/share/opencode" \
         -v "$sandbox_root/.local/state/opencode:/root/.local/state/opencode" \
         -v "$sandbox_root/.cache/opencode:/root/.cache/opencode" \
-        "sandbot-devshell:sandbot-devshell" \
-        sleep 10000d
-    ${pkgs.podman}/bin/podman start "$container_name"
-    echo "Created container $container_name" >&2
-    echo "OpenCode data persisted under $sandbox_root" >&2
-    echo "You can now run commands within the sandbox with: sandbot-exec $bot_name <command> [args...]" >&2
+        -v "$sandbox_root/.config/codex:/root/.config/codex" \
+        -v "$sandbox_root/.local/share/codex:/root/.local/share/codex" \
+        -v "$sandbox_root/.claude:/root/.claude" \
+        -v "$sandbox_root/.config/claude:/root/.config/claude" \
+        -v "$sandbox_root/.config/gemini:/root/.config/gemini" \
+        -v "$sandbox_root/.gemini:/root/.gemini" \
+        "${imageTag}" \
+        >/dev/null
+    "${podman}/bin/podman" start "$container_name" >/dev/null
+    echo "Created $container_name" >&2
+    echo "  image:        ${imageTag}" >&2
+    echo "  project:      $(pwd) -> /workdir" >&2
+    echo "  agent state:  $sandbox_root" >&2
+    echo "Shell in with:  sandbot"
+    echo "Exec a command: sandbot <cmd> [args...]"
   '';
 
+  # ---- sandbot-destroy / sandbot-destroy-data -----------------------------
   sandbot-destroy = pkgs.writeShellScriptBin "sandbot-destroy" ''
     set -ueo pipefail
-
     if [ $# -ge 1 ]; then
       bot_name="$1"
-      shift
     else
-      # generate from the full CWD
-      safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
-      bot_name="$safe_string"
+      bot_name="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
     fi
-
-    container_name="sandbot-$bot_name"
-    "${pkgs.podman}/bin/podman" rm -f "$container_name"
+    "${podman}/bin/podman" rm -f "sandbot-$bot_name" >/dev/null
+    echo "Destroyed sandbot-$bot_name" >&2
   '';
 
   sandbot-destroy-data = pkgs.writeShellScriptBin "sandbot-destroy-data" ''
     set -ueo pipefail
-
     if [ $# -ge 1 ]; then
       bot_name="$1"
     else
-      safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
-      bot_name="$safe_string"
+      bot_name="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
     fi
-
     sandbox_root="$(${sandbot-persistence-root}/bin/sandbot-persistence-root "$bot_name")"
-
     if [ ! -d "$sandbox_root" ]; then
-      echo "No persisted data found for $bot_name at $sandbox_root" >&2
+      echo "No persisted data for $bot_name at $sandbox_root" >&2
       exit 0
     fi
-
     rm -rf -- "$sandbox_root"
-    echo "Removed persisted OpenCode data at $sandbox_root" >&2
+    echo "Removed $sandbox_root" >&2
   '';
 
+  # ---- sandbot-exec: run a command in a specific bot ----------------------
   sandbot-exec = pkgs.writeShellScriptBin "sandbot-exec" ''
     set -ueo pipefail
     if [ $# -lt 1 ]; then
-      echo "Usage: $0 <container-name> [command...]"
+      echo "Usage: $0 <bot-name> [command...]" >&2
       exit 1
     fi
     bot_name="$1"
     shift
-    "${pkgs.podman}/bin/podman" exec --tty --interactive "sandbot-$bot_name" "$@"
+    if [ $# -eq 0 ]; then
+      set -- bash
+    fi
+    exec "${podman}/bin/podman" exec --tty --interactive "sandbot-$bot_name" "$@"
   '';
 
+  # ---- sandbot: one-command UX for the current project --------------------
+  # Derives bot name from cwd. Creates+starts the container if missing, then
+  # execs the requested command (or drops into a bash shell with no args).
   sandbot = pkgs.writeShellScriptBin "sandbot" ''
     set -ueo pipefail
-    # Derive bot name from cwd
-    safe_string="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
-    bot_name="$safe_string"
+    bot_name="$(pwd | sed 's/[^a-zA-Z0-9_.-]/_/g')"
     container_name="sandbot-$bot_name"
 
-    if [ $# -lt 1 ]; then
-      echo "Usage: $0 <command> [args...]"
-      exit 1
+    # Create-if-missing. Start-if-stopped. Cheap if already running.
+    if ! "${podman}/bin/podman" container exists "$container_name" 2>/dev/null; then
+      "${sandbot-create}/bin/sandbot-create" "$bot_name" >&2
+    else
+      state="$("${podman}/bin/podman" inspect --format '{{.State.Status}}' "$container_name" 2>/dev/null || echo unknown)"
+      if [ "$state" != "running" ]; then
+        "${podman}/bin/podman" start "$container_name" >/dev/null
+      fi
     fi
 
-    exec "${pkgs.podman}/bin/podman" exec --tty --interactive "$container_name" "$@"
+    if [ $# -eq 0 ]; then
+      set -- bash
+    fi
+    exec "${podman}/bin/podman" exec --tty --interactive "$container_name" "$@"
   '';
+
 in pkgs.symlinkJoin {
   name = "sandbot";
-  paths = [ sandbot-load sandbot-create sandbot-exec sandbot-destroy sandbot-destroy-data sandbot-persistence-root sandbot ];
+  paths = [
+    sandbot-build
+    sandbot-create
+    sandbot-destroy
+    sandbot-destroy-data
+    sandbot-persistence-root
+    sandbot-exec
+    sandbot
+  ];
 }
